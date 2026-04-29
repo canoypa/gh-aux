@@ -11,13 +11,14 @@ List and manage sub-issues of a GitHub issue.
 | `gh aux sub-issues remove` | Remove a sub-issue from a parent issue | `--issue`, `--sub-issue` |
 | `gh aux sub-issues prev` | Get the previous sibling sub-issue by position | `--issue`, `--sub-issue` |
 | `gh aux sub-issues next` | Get the next sibling sub-issue by position | `--issue`, `--sub-issue` |
+| `gh aux sub-issues parent` | Get the parent issue of a sub-issue | `--issue` |
 
 ## Flags
 
 | Flag | Description | Default |
 |---|---|---|
 | `--repo OWNER/REPO` | Target repository | Current directory's git remote |
-| `--issue <number>` | Parent issue number | — |
+| `--issue <number>` | For `list`/`add`/`remove`/`prev`/`next`: parent issue number. For `parent`: the child issue whose parent to retrieve. | — |
 | `--sub-issue <number>` | Target sub-issue number | — |
 
 ## Output
@@ -34,7 +35,7 @@ List and manage sub-issues of a GitHub issue.
 }
 ```
 
-`state` is `"OPEN"` or `"CLOSED"`. `position` is 0-based. It is omitted from `add`/`remove` output.
+`state` is `"OPEN"` or `"CLOSED"`. `position` is 0-based. It is omitted from `add`/`remove` output. `parent` returns `null` when the issue has no parent.
 
 ## Usage patterns
 
@@ -53,4 +54,7 @@ gh aux sub-issues next --issue 5 --sub-issue 12
 
 # Get the issue that comes before #12
 gh aux sub-issues prev --issue 5 --sub-issue 12
+
+# Get the parent issue of #12
+gh aux sub-issues parent --issue 12
 ```

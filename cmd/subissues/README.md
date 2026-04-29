@@ -28,6 +28,14 @@ Remove a sub-issue from a parent issue.
 gh aux sub-issues remove --issue <parent-number> --sub-issue <child-number> [--repo OWNER/REPO]
 ```
 
+### `sub-issues parent`
+
+Get the parent issue of a sub-issue. Returns `null` if the issue has no parent.
+
+```sh
+gh aux sub-issues parent --issue <child-number> [--repo OWNER/REPO]
+```
+
 ### `sub-issues prev`
 
 Get the previous sibling sub-issue by position.

@@ -22,6 +22,7 @@ func NewCmd() *cobra.Command {
 	cmd.AddCommand(newRemoveCmd())
 	cmd.AddCommand(newPrevCmd())
 	cmd.AddCommand(newNextCmd())
+	cmd.AddCommand(newParentCmd())
 
 	return cmd
 }
