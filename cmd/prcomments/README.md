@@ -50,3 +50,15 @@ Reply to an existing inline review comment thread. The reply is posted immediate
 gh aux pr-comments reply-review --pr <number> --id <comment-id> --body "..." [--repo OWNER/REPO]
 ```
 
+### `pr-comments resolve-thread`
+
+Resolve a review thread. Accepts either the thread's GraphQL node ID (from `timeline`) or a review comment integer ID (from the GitHub URL `#discussion_r<id>`).
+
+```sh
+# from timeline threads[].id
+gh aux pr-comments resolve-thread --thread-id <nodeId>
+
+# from GitHub URL (#discussion_r<id>); requires --repo
+gh aux pr-comments resolve-thread --comment-id <id> --repo OWNER/REPO
+```
+

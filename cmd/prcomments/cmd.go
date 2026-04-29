@@ -19,6 +19,7 @@ func NewCmd() *cobra.Command {
 	cmd.AddCommand(newAddCmd())
 	cmd.AddCommand(newReviewCmd())
 	cmd.AddCommand(newReplyReviewCmd())
+	cmd.AddCommand(newResolveThreadCmd())
 	cmd.AddCommand(newTimelineCmd())
 
 	return cmd

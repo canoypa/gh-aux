@@ -39,6 +39,7 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
           endCursor
         }
         nodes {
+          id
           isResolved
           comments(first: 1) {
             nodes {
@@ -142,7 +143,8 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
 								EndCursor   string `json:"endCursor"`
 							} `json:"pageInfo"`
 							Nodes []struct {
-								IsResolved bool `json:"isResolved"`
+								ID         string `json:"id"`
+								IsResolved bool   `json:"isResolved"`
 								Comments   struct {
 									Nodes []struct {
 										DatabaseID int `json:"databaseId"`
@@ -177,12 +179,15 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
 				return fmt.Errorf("GraphQL query failed: %w", err)
 			}
 
-			// Build isResolved map: root comment databaseId → isResolved.
-			// Paginate all reviewThreads pages so the map is always complete.
+			// Build lookup maps: root comment databaseId → isResolved / threadNodeID.
+			// Paginate all reviewThreads pages so the maps are always complete.
 			isResolvedMap := map[int]bool{}
+			threadIDMap := map[int]string{}
 			for _, thread := range result.Repository.PullRequest.ReviewThreads.Nodes {
 				if len(thread.Comments.Nodes) > 0 {
-					isResolvedMap[thread.Comments.Nodes[0].DatabaseID] = thread.IsResolved
+					rootID := thread.Comments.Nodes[0].DatabaseID
+					isResolvedMap[rootID] = thread.IsResolved
+					threadIDMap[rootID] = thread.ID
 				}
 			}
 			if result.Repository.PullRequest.ReviewThreads.PageInfo.HasNextPage {
@@ -197,7 +202,8 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
 										EndCursor   string `json:"endCursor"`
 									} `json:"pageInfo"`
 									Nodes []struct {
-										IsResolved bool `json:"isResolved"`
+										ID         string `json:"id"`
+										IsResolved bool   `json:"isResolved"`
 										Comments   struct {
 											Nodes []struct {
 												DatabaseID int `json:"databaseId"`
@@ -215,6 +221,7 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String!) {
       reviewThreads(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
         nodes {
+          id
           isResolved
           comments(first: 1) {
             nodes { databaseId }
@@ -235,7 +242,9 @@ query($owner: String!, $repo: String!, $pr: Int!, $after: String!) {
 					rtPage := rtResult.Repository.PullRequest.ReviewThreads
 					for _, thread := range rtPage.Nodes {
 						if len(thread.Comments.Nodes) > 0 {
-							isResolvedMap[thread.Comments.Nodes[0].DatabaseID] = thread.IsResolved
+							rootID := thread.Comments.Nodes[0].DatabaseID
+							isResolvedMap[rootID] = thread.IsResolved
+							threadIDMap[rootID] = thread.ID
 						}
 					}
 					if !rtPage.PageInfo.HasNextPage {
@@ -323,6 +332,7 @@ query($reviewId: ID!, $after: String!) {
 			}
 
 			type outThread struct {
+				ID         string       `json:"id"`
 				IsResolved bool         `json:"isResolved"`
 				Comments   []outComment `json:"comments"`
 			}
@@ -389,7 +399,7 @@ query($reviewId: ID!, $after: String!) {
 							if unresolvedOnly && resolved {
 								continue
 							}
-							threadMap[rootID] = &outThread{IsResolved: resolved}
+						threadMap[rootID] = &outThread{ID: threadIDMap[rootID], IsResolved: resolved}
 							threadOrder = append(threadOrder, rootID)
 						} else if unresolvedOnly && threadMap[rootID].IsResolved {
 							continue

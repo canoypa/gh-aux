@@ -11,6 +11,7 @@ Manage pull request comments — inline review comments and general PR comments.
 | `gh aux pr-comments add` | Add a general (non-diff) PR comment | `--pr`, `--body` |
 | `gh aux pr-comments review` | Create and/or submit a PR review (JSON input) | `--pr`, `--json` or stdin |
 | `gh aux pr-comments reply-review` | Reply to an existing inline review comment thread | `--pr`, `--id`, `--body` |
+| `gh aux pr-comments resolve-thread` | Resolve a review thread by its node ID | `--thread-id` |
 
 ## Flags
 
@@ -23,6 +24,8 @@ Manage pull request comments — inline review comments and general PR comments.
 | `--json '{...}'` | Review input JSON (`review` only) | — |
 | `--cursor <cursor>` | Pagination cursor (`timeline` only) | — |
 | `--unresolved` | Only return unresolved threads (`timeline` only) | false |
+| `--thread-id <nodeId>` | Review thread GraphQL node ID (`resolve-thread` only; from `timeline` threads[].id) | — |
+| `--comment-id <id>` | Review comment integer ID from GitHub URL `#discussion_r<id>` (`resolve-thread` only; requires `--repo`) | — |
 
 ## Output
 
@@ -31,7 +34,7 @@ All commands output JSON to stdout.
 - `timeline` → `{ pageInfo, nodes[] }` — each node is one of:
   - `{ type: "comment", id, body, author: { login }, createdAt, url }` (IssueComment)
   - `{ type: "review", id, state, body, author: { login }, submittedAt, url, threads[] }` (PullRequestReview)
-  - `threads[]` items: `{ isResolved, comments[] }`
+  - `threads[]` items: `{ id, isResolved, comments[] }`
   - `comments[]` items within a thread: `{ id, path, line?, originalLine?, diffHunk, body, author: { login }, createdAt, url }`
   - Bodies truncated to 200 chars.
   - All inline comments are fully fetched regardless of count (automatic pagination).
@@ -39,6 +42,7 @@ All commands output JSON to stdout.
 - `add` → single general comment object: `{ id, body, author: { login }, createdAt, updatedAt, url }`
 - `review` → review object: `{ id, state, body, author: { login }, url, submittedAt }`. `state` is `PENDING` when no `event` was provided.
 - `reply-review` → single inline review comment object: `{ id, body, path, line, originalLine, author: { login }, createdAt, updatedAt, url }`. The reply is posted immediately (not held in a pending review).
+- `resolve-thread` → `{ threadId, isResolved }`. `threadId` is the GraphQL node ID of the resolved thread. Pass the `id` from `timeline` threads[].
 
 ## Review Input Schema (`review` command)
 
@@ -91,4 +95,16 @@ gh aux pr-comments reply-review --pr 123 --id 987654321 --body "Addressed in the
 
 ```sh
 gh aux pr-comments add --pr 123 --body "Please update the PR description to include a migration guide."
+```
+
+**Resolve a review thread (from timeline):**
+
+```sh
+gh aux pr-comments resolve-thread --thread-id RT_kwDOA...
+```
+
+**Resolve a review thread (from GitHub URL `#discussion_r<id>`):**
+
+```sh
+gh aux pr-comments resolve-thread --comment-id 3146047744 --repo org/repo
 ```
