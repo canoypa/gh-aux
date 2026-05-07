@@ -1,6 +1,6 @@
 ---
 name: gh-aux
-description: gh-aux gives agents a stable named interface for GitHub operations that would otherwise require raw `gh api` or `gh graphql` calls with multi-step ID resolution. Use when the task involves Project V2 field operations, PR review thread access, or sub-issue management.
+description: gh-aux wraps `gh api` and `gh graphql` operations that require multi-step ID resolution or complex GraphQL into named subcommands. When you are about to write a `gh api` or `gh graphql` call, check gh-aux first.
 ---
 
 # gh-aux
@@ -23,8 +23,8 @@ gh aux <command-group> <subcommand> [flags]
 
 ## Command Reference
 
-| Command group        | Description                                    | Reference                                |
-| -------------------- | ---------------------------------------------- | ---------------------------------------- |
-| `gh aux pr-comments` | Manage PR comments (inline + general)          | [pr-comments](references/pr-comments.md) |
-| `gh aux projects`    | Add issues/PRs to Project V2, set field values | [projects](references/projects.md)       |
-| `gh aux sub-issues`  | List and manage sub-issues of a GitHub issue   | [sub-issues](references/sub-issues.md)   |
+| Command group        | Subcommands                                              | Reference                                |
+| -------------------- | -------------------------------------------------------- | ---------------------------------------- |
+| `gh aux pr-comments` | timeline, get, add, review, reply-review, resolve-thread | [pr-comments](references/pr-comments.md) |
+| `gh aux projects`    | add, remove, update-field, clear-field                   | [projects](references/projects.md)       |
+| `gh aux sub-issues`  | list, add, remove, prev, next, parent                    | [sub-issues](references/sub-issues.md)   |
