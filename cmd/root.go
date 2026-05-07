@@ -3,6 +3,7 @@ package cmd
 import (
 	"strings"
 
+	"github.com/canoypa/gh-aux/cmd/commits"
 	"github.com/canoypa/gh-aux/cmd/prcomments"
 	"github.com/canoypa/gh-aux/cmd/projects"
 	"github.com/canoypa/gh-aux/cmd/subissues"
@@ -19,6 +20,7 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.AddCommand(commits.NewCmd())
 	rootCmd.AddCommand(prcomments.NewCmd())
 	rootCmd.AddCommand(projects.NewCmd())
 	rootCmd.AddCommand(subissues.NewCmd())

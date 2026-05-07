@@ -18,6 +18,7 @@ gh aux <command> [subcommand] [flags]
 
 | Command | Description |
 |---|---|
+| [`commits`](cmd/commits/README.md) | Query commit metadata (e.g. find the PR associated with a commit) |
 | [`pr-comments`](cmd/prcomments/README.md) | List, get, reply to, and add pull request comments (inline and general) |
 | [`projects`](cmd/projects/README.md) | Add issues/PRs to a Project V2 and set field values |
 | [`sub-issues`](cmd/subissues/README.md) | List and manage sub-issues of a GitHub issue |
