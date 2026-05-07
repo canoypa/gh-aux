@@ -1,14 +1,14 @@
 # gh-aux
 
-GitHub CLI extension for GitHub operations that would otherwise require raw `gh api` or `gh graphql` calls.
+GitHub CLI extension that wraps GitHub operations — not available in standard `gh` — as named subcommands that are safe to auto-approve.
 
 See [README.md](README.md) for installation and command list.
 
 ## Purpose and Direction
 
-gh-aux wraps complex GitHub API operations into named, predictable subcommands. The target users are agents and scripts that need structured output.
+gh-aux wraps GitHub operations that require `gh api` or `gh graphql` into named subcommands. `gh api`/`gh graphql` cannot be selectively auto-approved; named subcommands can. Subcommand names and flag values align with GitHub UI concepts rather than raw API paths and node IDs.
 
-**Guiding principle**: A command belongs in gh-aux when the equivalent operation would require `gh api` or `gh graphql` with non-trivial request construction or response transformation.
+**Guiding principle**: A command belongs in gh-aux when it is a recurring need in day-to-day agent workflows AND requires `gh api` or `gh graphql` to execute. Complexity and multi-step ID resolution are common reasons an operation isn't already in standard `gh`, but they are not requirements on their own.
 
 ## Build and Test
 
@@ -34,9 +34,9 @@ gh aux <command-group> <subcommand>
 
 ## Conventions
 
-Follow the naming style of existing commands for subcommand names and flags.
+**Naming alignment with GitHub API**: Subcommand names and flag names should mirror the underlying GitHub API operation where possible. For example, `addProjectV2ItemById` → `projects add`, `deleteProjectV2Item` → `projects remove`, `updateProjectV2ItemFieldValue` → `projects update-field`, `clearProjectV2ItemFieldValue` → `projects clear-field`. Prefer the verb from the API mutation/endpoint over generic CRUD terms that don't match.
 
-**Naming alignment with GitHub API**: Subcommand names and flag names should mirror the underlying GitHub API operation where possible. For example, `addProjectV2ItemById` → `add`, `deleteProjectV2Item` → `remove`, `updateProjectV2ItemFieldValue` → `update-field`, `clearProjectV2ItemFieldValue` → `clear-field`. Prefer the verb from the API mutation/endpoint over generic CRUD terms that don't match.
+**UI-aligned naming over raw API paths**: The compound `<group> <subcommand>` name should read like an action a human would take in the GitHub UI (`projects update-field`, `sub-issues parent`, etc.).
 
 ### Adding a command group
 

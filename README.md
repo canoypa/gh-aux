@@ -1,6 +1,6 @@
 # gh-aux
 
-[GitHub CLI](https://cli.github.com/) extension that adds auxiliary commands not available in the standard `gh`.
+[GitHub CLI](https://cli.github.com/) extension for AI agents. Wraps `gh api`/`gh graphql` operations into named subcommands that can be individually auto-approved.
 
 ## Installation
 
