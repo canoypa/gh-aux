@@ -16,6 +16,7 @@ func NewCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&repoFlag, "repo", "", "Repository in OWNER/REPO format (defaults to current directory remote)")
 
 	cmd.AddCommand(newGetCmd())
+	cmd.AddCommand(newUpdateCmd())
 	cmd.AddCommand(newAddCmd())
 	cmd.AddCommand(newReviewCmd())
 	cmd.AddCommand(newReplyReviewCmd())

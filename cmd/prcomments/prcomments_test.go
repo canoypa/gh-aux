@@ -41,7 +41,7 @@ func TestResolveRepoString(t *testing.T) {
 		{"no slash", "ownerrepo", "", "", true},
 		{"empty owner", "/repo", "", "", true},
 		{"empty name", "owner/", "", "", true},
-		{"extra slash is valid", "owner/repo/extra", "owner", "repo/extra", false},
+		{"extra slash", "owner/repo/extra", "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -123,5 +123,133 @@ func TestWriteJSONNil(t *testing.T) {
 	}
 	if strings.TrimSpace(buf.String()) != "null" {
 		t.Errorf("writeJSON(nil) = %q, want %q", buf.String(), "null")
+	}
+}
+
+func TestValidateComments(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []reviewCommentInput
+		wantErr bool
+		errMsg  string
+	}{
+		// Valid cases
+		{
+			name:    "empty slice",
+			input:   []reviewCommentInput{},
+			wantErr: false,
+		},
+		{
+			name:    "valid reply",
+			input:   []reviewCommentInput{{InReplyTo: 1, Body: "reply"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid file-level comment",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "note", SubjectType: "file"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid file-level comment case-insensitive",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "note", SubjectType: "FILE"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid line-level comment",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "note", Line: 10, Side: "RIGHT"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid multi-line comment",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "note", Line: 10, Side: "RIGHT", StartLine: 8, StartSide: "RIGHT"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid multi-line different sides",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "note", Line: 10, Side: "RIGHT", StartLine: 8, StartSide: "LEFT"}},
+			wantErr: false,
+		},
+		// Reply errors
+		{
+			name:    "reply missing body",
+			input:   []reviewCommentInput{{InReplyTo: 1, Body: ""}},
+			wantErr: true,
+			errMsg:  "body is required for replies",
+		},
+		// New comment errors
+		{
+			name:    "missing path",
+			input:   []reviewCommentInput{{Body: "note", Line: 1, Side: "RIGHT"}},
+			wantErr: true,
+			errMsg:  "path is required",
+		},
+		{
+			name:    "missing body for file-level",
+			input:   []reviewCommentInput{{Path: "foo.go", SubjectType: "file"}},
+			wantErr: true,
+			errMsg:  "body is required",
+		},
+		{
+			name:    "missing body for line-level",
+			input:   []reviewCommentInput{{Path: "foo.go", Line: 10, Side: "RIGHT"}},
+			wantErr: true,
+			errMsg:  "body is required",
+		},
+		// Line-level errors
+		{
+			name:    "line zero",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: 0, Side: "RIGHT"}},
+			wantErr: true,
+			errMsg:  "line must be > 0",
+		},
+		{
+			name:    "line negative",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: -1, Side: "RIGHT"}},
+			wantErr: true,
+			errMsg:  "line must be > 0",
+		},
+		{
+			name:    "invalid side lowercase",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: 1, Side: "right"}},
+			wantErr: true,
+			errMsg:  "side must be",
+		},
+		{
+			name:    "invalid side empty",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: 1, Side: ""}},
+			wantErr: true,
+			errMsg:  "side must be",
+		},
+		// Multi-line errors
+		{
+			name:    "start_line greater than line",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: 5, Side: "RIGHT", StartLine: 10, StartSide: "RIGHT"}},
+			wantErr: true,
+			errMsg:  "start_line",
+		},
+		{
+			name:    "start_side missing when start_line set",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: 10, Side: "RIGHT", StartLine: 8}},
+			wantErr: true,
+			errMsg:  "start_side is required",
+		},
+		{
+			name:    "start_side invalid",
+			input:   []reviewCommentInput{{Path: "foo.go", Body: "b", Line: 10, Side: "RIGHT", StartLine: 8, StartSide: "right"}},
+			wantErr: true,
+			errMsg:  "start_side must be",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateComments(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateComments() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("validateComments() error = %q, want to contain %q", err.Error(), tt.errMsg)
+			}
+		})
 	}
 }

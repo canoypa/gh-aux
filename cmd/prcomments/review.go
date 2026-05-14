@@ -14,12 +14,14 @@ import (
 
 // reviewCommentInput is the input shape for a single review comment.
 type reviewCommentInput struct {
-	Path      string `json:"path,omitempty"`
-	Line      int    `json:"line,omitempty"`
-	StartLine int    `json:"start_line,omitempty"`
-	Side      string `json:"side,omitempty"`
-	Body      string `json:"body"`
-	InReplyTo int    `json:"in_reply_to,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Line        int    `json:"line,omitempty"`
+	StartLine   int    `json:"start_line,omitempty"`
+	Side        string `json:"side,omitempty"`
+	StartSide   string `json:"start_side,omitempty"`
+	Body        string `json:"body"`
+	InReplyTo   int    `json:"in_reply_to,omitempty"`
+	SubjectType string `json:"subject_type,omitempty"`
 }
 
 // reviewInput is the input schema accepted by the review command.
@@ -66,26 +68,68 @@ func (r rawReviewResponse) toOutput() reviewOutput {
 	return out
 }
 
+// validateComments checks reviewCommentInput fields before any API calls are made.
+func validateComments(comments []reviewCommentInput) error {
+	for i, c := range comments {
+		if c.InReplyTo != 0 {
+			// Reply: only body is required.
+			if c.Body == "" {
+				return fmt.Errorf("comments[%d]: body is required for replies", i)
+			}
+			continue
+		}
+		if c.Path == "" {
+			return fmt.Errorf("comments[%d]: path is required", i)
+		}
+		if c.Body == "" {
+			return fmt.Errorf("comments[%d]: body is required", i)
+		}
+		if strings.EqualFold(c.SubjectType, "file") {
+			continue
+		}
+		// Line-level comment.
+		if c.Line <= 0 {
+			return fmt.Errorf("comments[%d]: line must be > 0", i)
+		}
+		if c.Side != "LEFT" && c.Side != "RIGHT" {
+			return fmt.Errorf("comments[%d]: side must be \"LEFT\" or \"RIGHT\" (uppercase)", i)
+		}
+		if c.StartLine != 0 && c.StartLine > c.Line {
+			return fmt.Errorf("comments[%d]: start_line (%d) must be <= line (%d)", i, c.StartLine, c.Line)
+		}
+		if c.StartLine != 0 && c.StartSide == "" {
+			return fmt.Errorf("comments[%d]: start_side is required when start_line is set", i)
+		}
+		if c.StartSide != "" && c.StartSide != "LEFT" && c.StartSide != "RIGHT" {
+			return fmt.Errorf("comments[%d]: start_side must be \"LEFT\" or \"RIGHT\" (uppercase)", i)
+		}
+	}
+	return nil
+}
+
 // findOrCreatePendingReview returns the current user's pending review,
 // creating one (with the PR's head commit) if none exists.
-func findOrCreatePendingReview(restClient *api.RESTClient, owner, repo string, prNumber int) (rawReviewResponse, error) {
+// The returned bool is true when a new review was created (false = pre-existing).
+func findOrCreatePendingReview(restClient *api.RESTClient, owner, repo string, prNumber int) (rawReviewResponse, bool, error) {
 	var currentUser struct {
 		Login string `json:"login"`
 	}
 	if err := restClient.Get("user", &currentUser); err != nil {
-		return rawReviewResponse{}, fmt.Errorf("failed to get current user: %w", err)
+		return rawReviewResponse{}, false, fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	reviewsPath := fmt.Sprintf("repos/%s/%s/pulls/%d/reviews", owner, repo, prNumber)
 
 	var reviews []rawReviewResponse
-	if err := restClient.Get(reviewsPath, &reviews); err != nil {
-		return rawReviewResponse{}, fmt.Errorf("failed to get reviews: %w", err)
+	if err := restClient.Get(reviewsPath+"?per_page=100", &reviews); err != nil {
+		return rawReviewResponse{}, false, fmt.Errorf("failed to get reviews: %w", err)
 	}
 
 	for _, r := range reviews {
 		if r.State == "PENDING" && r.User.Login == currentUser.Login {
-			return r, nil
+			// PATCH /pulls/{n}/reviews/{id} returns 404 for PENDING reviews (GitHub API constraint).
+			// Body will be applied at submit time via submitPendingReview.
+			return r, false, nil
 		}
 	}
 
@@ -96,20 +140,20 @@ func findOrCreatePendingReview(restClient *api.RESTClient, owner, repo string, p
 		} `json:"head"`
 	}
 	if err := restClient.Get(fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, prNumber), &pr); err != nil {
-		return rawReviewResponse{}, fmt.Errorf("failed to get PR: %w", err)
+		return rawReviewResponse{}, false, fmt.Errorf("failed to get PR: %w", err)
 	}
 
 	reqBytes, err := json.Marshal(map[string]string{"commit_id": pr.Head.SHA})
 	if err != nil {
-		return rawReviewResponse{}, fmt.Errorf("failed to encode request: %w", err)
+		return rawReviewResponse{}, false, fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	var created rawReviewResponse
 	if err := restClient.Post(reviewsPath, bytes.NewReader(reqBytes), &created); err != nil {
-		return rawReviewResponse{}, fmt.Errorf("failed to create pending review: %w", err)
+		return rawReviewResponse{}, false, fmt.Errorf("failed to create pending review: %w", err)
 	}
 
-	return created, nil
+	return created, true, nil
 }
 
 // findThreadNodeID returns the GraphQL node_id of the review thread that contains commentID.
@@ -199,19 +243,44 @@ mutation($input: AddPullRequestReviewThreadReplyInput!) {
 	}
 
 	// New inline thread.
-	side := c.Side
-	if side == "" {
-		side = "RIGHT"
+	if strings.EqualFold(c.SubjectType, "file") {
+		// File-level comment: subjectType FILE, no line or side.
+		input := map[string]interface{}{
+			"pullRequestReviewId": reviewNodeID,
+			"path":                c.Path,
+			"body":                c.Body,
+			"subjectType":         "FILE",
+		}
+		const mutation = `
+mutation($input: AddPullRequestReviewThreadInput!) {
+  addPullRequestReviewThread(input: $input) {
+    thread { id }
+  }
+}`
+		var result struct {
+			AddPullRequestReviewThread struct {
+				Thread struct {
+					ID string `json:"id"`
+				} `json:"thread"`
+			} `json:"addPullRequestReviewThread"`
+		}
+		if err := gqlClient.Do(mutation, map[string]interface{}{"input": input}, &result); err != nil {
+			return fmt.Errorf("failed to add file comment to %s: %w", c.Path, err)
+		}
+		return nil
 	}
+
+	// Line-level inline thread.
 	input := map[string]interface{}{
 		"pullRequestReviewId": reviewNodeID,
 		"path":                c.Path,
 		"line":                c.Line,
-		"side":                side,
+		"side":                c.Side,
 		"body":                c.Body,
 	}
 	if c.StartLine != 0 {
 		input["startLine"] = c.StartLine
+		input["startSide"] = c.StartSide
 	}
 
 	const mutation = `
@@ -258,20 +327,39 @@ func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewO
 		return reviewOutput{}, fmt.Errorf("failed to create REST client: %w", err)
 	}
 
+	// Validate before making any API calls.
+	if input.Body != "" && input.Event == "" {
+		return reviewOutput{}, fmt.Errorf("body requires event to be set")
+	}
+	if err := validateComments(input.Comments); err != nil {
+		return reviewOutput{}, err
+	}
+
 	// Step 1: find or create pending review.
-	pending, err := findOrCreatePendingReview(restClient, owner, repo, prNumber)
+	pending, created, err := findOrCreatePendingReview(restClient, owner, repo, prNumber)
 	if err != nil {
 		return reviewOutput{}, err
+	}
+
+	// deletePending removes the newly created pending review on failure.
+	deletePending := func() {
+		if !created {
+			return
+		}
+		path := fmt.Sprintf("repos/%s/%s/pulls/%d/reviews/%d", owner, repo, prNumber, pending.ID)
+		_ = restClient.Delete(path, nil)
 	}
 
 	// Step 2: add inline comments via GraphQL.
 	if len(input.Comments) > 0 {
 		gqlClient, err := api.DefaultGraphQLClient()
 		if err != nil {
+			deletePending()
 			return reviewOutput{}, fmt.Errorf("failed to create GraphQL client: %w", err)
 		}
 		for _, c := range input.Comments {
 			if err := addCommentToReview(gqlClient, owner, repo, prNumber, pending.NodeID, c); err != nil {
+				deletePending()
 				return reviewOutput{}, err
 			}
 		}
@@ -281,6 +369,7 @@ func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewO
 	if input.Event != "" {
 		result, err := submitPendingReview(restClient, owner, repo, prNumber, pending.ID, input.Event, input.Body)
 		if err != nil {
+			deletePending()
 			return reviewOutput{}, err
 		}
 		return result.toOutput(), nil
@@ -306,11 +395,14 @@ Schema:
     "body":     "overall review comment",
     "comments": [
       { "path": "src/foo.ts", "line": 42, "body": "...", "side": "RIGHT" },
-      { "path": "src/bar.ts", "line": 10, "start_line": 8, "body": "..." },
+      { "path": "src/bar.ts", "line": 10, "start_line": 8, "body": "...", "side": "RIGHT" },
       { "in_reply_to": 123456789, "body": "reply text" }
     ]
   }`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if prNumber <= 0 {
+				return fmt.Errorf("pr must be > 0")
+			}
 			owner, repo, err := resolveRepo(repoFlag)
 			if err != nil {
 				return err
