@@ -34,6 +34,9 @@ func newResolveThreadCmd() *cobra.Command {
 			resolvedThreadID := threadID
 
 			if hasCommentID {
+				if commentID <= 0 {
+					return fmt.Errorf("comment-id must be > 0")
+				}
 				// Step 1: REST GET to obtain the comment's GraphQL node ID.
 				owner, repo, err := resolveRepo(repoFlag)
 				if err != nil {

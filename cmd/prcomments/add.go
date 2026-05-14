@@ -18,6 +18,9 @@ func newAddCmd() *cobra.Command {
 		Use:   "add",
 		Short: "Add a general comment to a pull request",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if prNumber <= 0 {
+				return fmt.Errorf("pr must be > 0")
+			}
 			owner, repo, err := resolveRepo(repoFlag)
 			if err != nil {
 				return err

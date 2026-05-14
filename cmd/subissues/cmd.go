@@ -1,6 +1,8 @@
 package subissues
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -11,6 +13,12 @@ func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sub-issues",
 		Short: "Manage sub-issues of a GitHub issue",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if issueNumber <= 0 {
+				return fmt.Errorf("issue must be > 0")
+			}
+			return nil
+		},
 	}
 
 	cmd.PersistentFlags().StringVar(&repoFlag, "repo", "", "Repository in OWNER/REPO format (defaults to current directory remote)")

@@ -19,6 +19,12 @@ func newReplyReviewCmd() *cobra.Command {
 		Use:   "reply-review",
 		Short: "Reply to a pull request review comment",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if prNumber <= 0 {
+				return fmt.Errorf("pr must be > 0")
+			}
+			if commentID <= 0 {
+				return fmt.Errorf("id must be > 0")
+			}
 			owner, repo, err := resolveRepo(repoFlag)
 			if err != nil {
 				return err

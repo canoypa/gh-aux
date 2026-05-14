@@ -15,6 +15,9 @@ func newGetCmd() *cobra.Command {
 		Use:   "get",
 		Short: "Get a pull request inline review comment (not a general PR comment)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commentID <= 0 {
+				return fmt.Errorf("id must be > 0")
+			}
 			owner, repo, err := resolveRepo(repoFlag)
 			if err != nil {
 				return err

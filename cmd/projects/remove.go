@@ -22,6 +22,9 @@ func newRemoveCmd() *cobra.Command {
 				return err
 			}
 
+			if projectNumber <= 0 {
+				return fmt.Errorf("project must be > 0")
+			}
 			if issueNumber == 0 && prNumber == 0 {
 				return fmt.Errorf("one of --issue or --pr is required")
 			}

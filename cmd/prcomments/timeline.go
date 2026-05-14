@@ -17,6 +17,9 @@ func newTimelineCmd() *cobra.Command {
 		Use:   "timeline",
 		Short: "List PR comments and review threads in chronological order",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if prNumber <= 0 {
+				return fmt.Errorf("pr must be > 0")
+			}
 			owner, repo, err := resolveRepo(repoFlag)
 			if err != nil {
 				return err
