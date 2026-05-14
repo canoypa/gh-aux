@@ -13,7 +13,7 @@ import (
 // falling back to the current directory's git remote if the argument is empty.
 func resolveRepo(repoStr string) (owner, name string, err error) {
 	if repoStr != "" {
-		parts := strings.SplitN(repoStr, "/", 2)
+		parts := strings.Split(repoStr, "/")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return "", "", fmt.Errorf("invalid repo format %q: expected OWNER/REPO", repoStr)
 		}

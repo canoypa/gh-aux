@@ -16,6 +16,7 @@ func TestResolveRepoString(t *testing.T) {
 		{"no slash", "ownerrepo", "", "", true},
 		{"empty owner", "/repo", "", "", true},
 		{"empty name", "owner/", "", "", true},
+		{"extra slash", "owner/repo/extra", "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
