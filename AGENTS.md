@@ -10,6 +10,11 @@ gh-aux wraps GitHub operations that require `gh api` or `gh graphql` into named 
 
 **Guiding principle**: A command belongs in gh-aux when it is a recurring need in day-to-day agent workflows AND requires `gh api` or `gh graphql` to execute. Complexity and multi-step ID resolution are common reasons an operation isn't already in standard `gh`, but they are not requirements on their own.
 
+**Safety over convenience**: API calls have real side effects — invalid input can leave dangling GitHub state. Rules:
+- Validate all required fields before any API call.
+- Roll back remote state created in earlier steps when a later step fails.
+- Never silently coerce ambiguous values; require the caller to be explicit.
+
 ## Build and Test
 
 ```sh
@@ -34,9 +39,7 @@ gh aux <command-group> <subcommand>
 
 ## Conventions
 
-**Naming alignment with GitHub API**: Subcommand names and flag names should mirror the underlying GitHub API operation where possible. For example, `addProjectV2ItemById` → `projects add`, `deleteProjectV2Item` → `projects remove`, `updateProjectV2ItemFieldValue` → `projects update-field`, `clearProjectV2ItemFieldValue` → `projects clear-field`. Prefer the verb from the API mutation/endpoint over generic CRUD terms that don't match.
-
-**UI-aligned naming over raw API paths**: The compound `<group> <subcommand>` name should read like an action a human would take in the GitHub UI (`projects update-field`, `sub-issues parent`, etc.).
+**Naming**: Subcommand and flag names mirror the underlying GitHub API operation where possible (`addProjectV2ItemById` → `projects add`, `updateProjectV2ItemFieldValue` → `projects update-field`). The compound `<group> <subcommand>` name should also read like an action a human would take in the GitHub UI (`projects update-field`, `sub-issues parent`).
 
 ### Adding a command group
 
@@ -57,6 +60,17 @@ gh aux <command-group> <subcommand>
 - Use `api.DefaultRESTClient()` for REST calls
 - Both come from `github.com/cli/go-gh/v2/pkg/api`
 - REST POST/PATCH bodies: `json.Marshal` + `bytes.NewReader`
+- REST DELETE: `client.Delete(path, nil)` — only call on resources the current operation created (see Safety rules)
+
+### Validation and rollback
+
+- Write a dedicated validate function (e.g. `validateXxx`) and call it before any API call. This enables clear errors without side effects.
+- For multi-step operations: use a `created bool` to record whether remote state was newly created (vs pre-existing). On failure in a later step, delete it only if `created == true`. Never delete pre-existing state.
+
+### Tests
+
+- Tests live in the same package as the code (`package <group>`, not `package <group>_test`)
+- Only test pure logic (string manipulation, type conversions, validation). Do not mock HTTP.
 
 ### Documentation
 
