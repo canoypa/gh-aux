@@ -1,4 +1,4 @@
-package prcomments
+package reviewcomments
 
 import (
 	"encoding/json"
@@ -9,8 +9,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/repository"
 )
 
-
-// ReviewComment represents a pull request review comment (REST API shape, normalized to camelCase).
+// ReviewComment represents a pull request review comment (normalized to camelCase).
 type ReviewComment struct {
 	ID           int    `json:"id"`
 	Body         string `json:"body"`
@@ -23,17 +22,6 @@ type ReviewComment struct {
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 	URL       string `json:"url"`
-}
-
-const bodyTruncateLen = 200
-
-// truncateBody truncates s to bodyTruncateLen runes, appending "..." if truncated.
-func truncateBody(s string) string {
-	runes := []rune(s)
-	if len(runes) <= bodyTruncateLen {
-		return s
-	}
-	return string(runes[:bodyTruncateLen]) + "..."
 }
 
 // rawComment is the REST API response shape for a pull request review comment.
@@ -86,42 +74,6 @@ func resolveRepo(repoStr string) (owner, name string, err error) {
 		return "", "", fmt.Errorf("could not determine current repository (use --repo): %w", err)
 	}
 	return r.Owner, r.Name, nil
-}
-
-// IssueComment represents a general (non-diff) pull request comment.
-type IssueComment struct {
-	ID        int    `json:"id"`
-	Body      string `json:"body"`
-	Author    struct {
-		Login string `json:"login"`
-	} `json:"author"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
-	URL       string `json:"url"`
-}
-
-// rawIssueComment is the REST API response shape for an issue/PR comment.
-type rawIssueComment struct {
-	ID   int    `json:"id"`
-	Body string `json:"body"`
-	User struct {
-		Login string `json:"login"`
-	} `json:"user"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	HTMLURL   string `json:"html_url"`
-}
-
-func (r rawIssueComment) toIssueComment() IssueComment {
-	c := IssueComment{
-		ID:        r.ID,
-		Body:      r.Body,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
-		URL:       r.HTMLURL,
-	}
-	c.Author.Login = r.User.Login
-	return c
 }
 
 // writeJSON writes v as indented JSON to w.

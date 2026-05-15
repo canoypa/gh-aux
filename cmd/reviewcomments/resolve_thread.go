@@ -1,4 +1,4 @@
-package prcomments
+package reviewcomments
 
 import (
 	"fmt"
@@ -37,7 +37,6 @@ func newResolveThreadCmd() *cobra.Command {
 				if commentID <= 0 {
 					return fmt.Errorf("comment-id must be > 0")
 				}
-				// Step 1: REST GET to obtain the comment's GraphQL node ID.
 				owner, repo, err := resolveRepo(repoFlag)
 				if err != nil {
 					return err
@@ -54,7 +53,6 @@ func newResolveThreadCmd() *cobra.Command {
 					return fmt.Errorf("failed to fetch comment: %w", err)
 				}
 
-				// Step 2: GraphQL to resolve comment node → thread node ID.
 				const queryThread = `
 query($nodeId: ID!) {
   node(id: $nodeId) {
@@ -81,7 +79,6 @@ query($nodeId: ID!) {
 				}
 			}
 
-			// Resolve the thread.
 			const mutation = `
 mutation($threadId: ID!) {
   resolveReviewThread(input: { threadId: $threadId }) {
@@ -118,7 +115,7 @@ mutation($threadId: ID!) {
 		},
 	}
 
-	cmd.Flags().StringVar(&threadID, "thread-id", "", "Thread node ID to resolve (from timeline threads[].id)")
+	cmd.Flags().StringVar(&threadID, "thread-id", "", "Thread node ID to resolve")
 	cmd.Flags().IntVar(&commentID, "comment-id", 0, "Review comment integer ID from URL (#discussion_r<id>); requires --repo")
 
 	return cmd

@@ -27,6 +27,7 @@ gh aux <command-group> <subcommand> [flags]
 | -------------------- | -------------------------------------------------------- | ---------------------------------------- |
 | `gh aux commits`     | pr                                                       | [commits](references/commits.md)         |
 | `gh aux files`       | get, download                                            | [files](references/files.md)             |
-| `gh aux pr-comments` | timeline, get, update, add, review, reply-review, resolve-thread | [pr-comments](references/pr-comments.md) |
 | `gh aux projects`    | add, remove, update-field, clear-field                   | [projects](references/projects.md)       |
+| `gh aux review-comments` | list, get, update, add, resolve-thread               | [review-comments](references/review-comments.md) |
+| `gh aux reviews`     | create                                                   | [reviews](references/reviews.md)         |
 | `gh aux sub-issues`  | list, add, remove, prev, next, parent                    | [sub-issues](references/sub-issues.md)   |

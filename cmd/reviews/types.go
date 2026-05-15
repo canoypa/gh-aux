@@ -1,15 +1,14 @@
-package prcomments
+package reviews
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/api"
-	"github.com/spf13/cobra"
+	"github.com/cli/go-gh/v2/pkg/repository"
 )
 
 // reviewCommentInput is the input shape for a single review comment.
@@ -24,7 +23,7 @@ type reviewCommentInput struct {
 	SubjectType string `json:"subject_type,omitempty"`
 }
 
-// reviewInput is the input schema accepted by the review command.
+// reviewInput is the input schema accepted by the create command.
 type reviewInput struct {
 	Event    string               `json:"event,omitempty"`
 	Body     string               `json:"body,omitempty"`
@@ -68,11 +67,34 @@ func (r rawReviewResponse) toOutput() reviewOutput {
 	return out
 }
 
+// resolveRepo resolves owner and repository name from a "OWNER/REPO" string,
+// falling back to the current directory's git remote if the argument is empty.
+func resolveRepo(repoStr string) (owner, name string, err error) {
+	if repoStr != "" {
+		parts := strings.Split(repoStr, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return "", "", fmt.Errorf("invalid repo format %q: expected OWNER/REPO", repoStr)
+		}
+		return parts[0], parts[1], nil
+	}
+	r, err := repository.Current()
+	if err != nil {
+		return "", "", fmt.Errorf("could not determine current repository (use --repo): %w", err)
+	}
+	return r.Owner, r.Name, nil
+}
+
+// writeJSON writes v as indented JSON to w.
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
 // validateComments checks reviewCommentInput fields before any API calls are made.
 func validateComments(comments []reviewCommentInput) error {
 	for i, c := range comments {
 		if c.InReplyTo != 0 {
-			// Reply: only body is required.
 			if c.Body == "" {
 				return fmt.Errorf("comments[%d]: body is required for replies", i)
 			}
@@ -84,10 +106,12 @@ func validateComments(comments []reviewCommentInput) error {
 		if c.Body == "" {
 			return fmt.Errorf("comments[%d]: body is required", i)
 		}
-		if strings.EqualFold(c.SubjectType, "file") {
+		if c.SubjectType != "" && c.SubjectType != "file" {
+			return fmt.Errorf("comments[%d]: subject_type must be \"file\" when set", i)
+		}
+		if c.SubjectType == "file" {
 			continue
 		}
-		// Line-level comment.
 		if c.Line <= 0 {
 			return fmt.Errorf("comments[%d]: line must be > 0", i)
 		}
@@ -99,6 +123,9 @@ func validateComments(comments []reviewCommentInput) error {
 		}
 		if c.StartLine != 0 && c.StartSide == "" {
 			return fmt.Errorf("comments[%d]: start_side is required when start_line is set", i)
+		}
+		if c.StartSide != "" && c.StartLine == 0 {
+			return fmt.Errorf("comments[%d]: start_line is required when start_side is set", i)
 		}
 		if c.StartSide != "" && c.StartSide != "LEFT" && c.StartSide != "RIGHT" {
 			return fmt.Errorf("comments[%d]: start_side must be \"LEFT\" or \"RIGHT\" (uppercase)", i)
@@ -120,20 +147,21 @@ func findOrCreatePendingReview(restClient *api.RESTClient, owner, repo string, p
 
 	reviewsPath := fmt.Sprintf("repos/%s/%s/pulls/%d/reviews", owner, repo, prNumber)
 
-	var reviews []rawReviewResponse
-	if err := restClient.Get(reviewsPath+"?per_page=100", &reviews); err != nil {
-		return rawReviewResponse{}, false, fmt.Errorf("failed to get reviews: %w", err)
-	}
-
-	for _, r := range reviews {
-		if r.State == "PENDING" && r.User.Login == currentUser.Login {
-			// PATCH /pulls/{n}/reviews/{id} returns 404 for PENDING reviews (GitHub API constraint).
-			// Body will be applied at submit time via submitPendingReview.
-			return r, false, nil
+	for page := 1; ; page++ {
+		var reviews []rawReviewResponse
+		if err := restClient.Get(fmt.Sprintf("%s?per_page=100&page=%d", reviewsPath, page), &reviews); err != nil {
+			return rawReviewResponse{}, false, fmt.Errorf("failed to get reviews: %w", err)
+		}
+		for _, r := range reviews {
+			if r.State == "PENDING" && r.User.Login == currentUser.Login {
+				return r, false, nil
+			}
+		}
+		if len(reviews) < 100 {
+			break
 		}
 	}
 
-	// No pending review — get head SHA and create one.
 	var pr struct {
 		Head struct {
 			SHA string `json:"sha"`
@@ -156,13 +184,14 @@ func findOrCreatePendingReview(restClient *api.RESTClient, owner, repo string, p
 	return created, true, nil
 }
 
-// findThreadNodeID returns the GraphQL node_id of the review thread that contains commentID.
+// findThreadNodeID returns the GraphQL node_id of the review thread containing commentID.
 func findThreadNodeID(gqlClient *api.GraphQLClient, owner, repo string, prNumber, commentID int) (string, error) {
 	const query = `
-query($owner: String!, $repo: String!, $pr: Int!) {
+query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           comments(first: 100) {
@@ -173,10 +202,14 @@ query($owner: String!, $repo: String!, $pr: Int!) {
     }
   }
 }`
-	var result struct {
+	type resultShape struct {
 		Repository struct {
 			PullRequest struct {
 				ReviewThreads struct {
+					PageInfo struct {
+						HasNextPage bool   `json:"hasNextPage"`
+						EndCursor   string `json:"endCursor"`
+					} `json:"pageInfo"`
 					Nodes []struct {
 						ID       string `json:"id"`
 						Comments struct {
@@ -190,26 +223,36 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 		} `json:"repository"`
 	}
 
-	if err := gqlClient.Do(query, map[string]interface{}{
-		"owner": owner,
-		"repo":  repo,
-		"pr":    prNumber,
-	}, &result); err != nil {
-		return "", fmt.Errorf("failed to query threads: %w", err)
-	}
+	var after interface{} = nil
+	for {
+		var result resultShape
+		if err := gqlClient.Do(query, map[string]interface{}{
+			"owner": owner,
+			"repo":  repo,
+			"pr":    prNumber,
+			"after": after,
+		}, &result); err != nil {
+			return "", fmt.Errorf("failed to query threads: %w", err)
+		}
 
-	for _, thread := range result.Repository.PullRequest.ReviewThreads.Nodes {
-		for _, c := range thread.Comments.Nodes {
-			if c.DatabaseID == commentID {
-				return thread.ID, nil
+		for _, thread := range result.Repository.PullRequest.ReviewThreads.Nodes {
+			for _, c := range thread.Comments.Nodes {
+				if c.DatabaseID == commentID {
+					return thread.ID, nil
+				}
 			}
 		}
+
+		if !result.Repository.PullRequest.ReviewThreads.PageInfo.HasNextPage {
+			break
+		}
+		after = result.Repository.PullRequest.ReviewThreads.PageInfo.EndCursor
 	}
 
 	return "", fmt.Errorf("thread containing comment %d not found", commentID)
 }
 
-// addCommentToReview adds a single inline comment (new thread or reply) to a pending review via GraphQL.
+// addCommentToReview adds a single inline comment to a pending review via GraphQL.
 func addCommentToReview(gqlClient *api.GraphQLClient, owner, repo string, prNumber int, reviewNodeID string, c reviewCommentInput) error {
 	if c.InReplyTo != 0 {
 		threadNodeID, err := findThreadNodeID(gqlClient, owner, repo, prNumber, c.InReplyTo)
@@ -242,9 +285,7 @@ mutation($input: AddPullRequestReviewThreadReplyInput!) {
 		return nil
 	}
 
-	// New inline thread.
-	if strings.EqualFold(c.SubjectType, "file") {
-		// File-level comment: subjectType FILE, no line or side.
+	if c.SubjectType == "file" {
 		input := map[string]interface{}{
 			"pullRequestReviewId": reviewNodeID,
 			"path":                c.Path,
@@ -259,9 +300,7 @@ mutation($input: AddPullRequestReviewThreadInput!) {
 }`
 		var result struct {
 			AddPullRequestReviewThread struct {
-				Thread struct {
-					ID string `json:"id"`
-				} `json:"thread"`
+				Thread struct{ ID string `json:"id"` } `json:"thread"`
 			} `json:"addPullRequestReviewThread"`
 		}
 		if err := gqlClient.Do(mutation, map[string]interface{}{"input": input}, &result); err != nil {
@@ -270,7 +309,6 @@ mutation($input: AddPullRequestReviewThreadInput!) {
 		return nil
 	}
 
-	// Line-level inline thread.
 	input := map[string]interface{}{
 		"pullRequestReviewId": reviewNodeID,
 		"path":                c.Path,
@@ -291,9 +329,7 @@ mutation($input: AddPullRequestReviewThreadInput!) {
 }`
 	var result struct {
 		AddPullRequestReviewThread struct {
-			Thread struct {
-				ID string `json:"id"`
-			} `json:"thread"`
+			Thread struct{ ID string `json:"id"` } `json:"thread"`
 		} `json:"addPullRequestReviewThread"`
 	}
 	if err := gqlClient.Do(mutation, map[string]interface{}{"input": input}, &result); err != nil {
@@ -320,14 +356,13 @@ func submitPendingReview(restClient *api.RESTClient, owner, repo string, prNumbe
 	return result, nil
 }
 
-// executeReview is the shared logic for the review and reply-review commands.
+// executeReview is the core logic for the create command.
 func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewOutput, error) {
 	restClient, err := api.DefaultRESTClient()
 	if err != nil {
 		return reviewOutput{}, fmt.Errorf("failed to create REST client: %w", err)
 	}
 
-	// Validate before making any API calls.
 	if input.Body != "" && input.Event == "" {
 		return reviewOutput{}, fmt.Errorf("body requires event to be set")
 	}
@@ -335,13 +370,11 @@ func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewO
 		return reviewOutput{}, err
 	}
 
-	// Step 1: find or create pending review.
 	pending, created, err := findOrCreatePendingReview(restClient, owner, repo, prNumber)
 	if err != nil {
 		return reviewOutput{}, err
 	}
 
-	// deletePending removes the newly created pending review on failure.
 	deletePending := func() {
 		if !created {
 			return
@@ -350,7 +383,6 @@ func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewO
 		_ = restClient.Delete(path, nil)
 	}
 
-	// Step 2: add inline comments via GraphQL.
 	if len(input.Comments) > 0 {
 		gqlClient, err := api.DefaultGraphQLClient()
 		if err != nil {
@@ -365,7 +397,6 @@ func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewO
 		}
 	}
 
-	// Step 3: submit if event provided, otherwise leave as pending.
 	if input.Event != "" {
 		result, err := submitPendingReview(restClient, owner, repo, prNumber, pending.ID, input.Event, input.Body)
 		if err != nil {
@@ -376,80 +407,4 @@ func executeReview(owner, repo string, prNumber int, input reviewInput) (reviewO
 	}
 
 	return pending.toOutput(), nil
-}
-
-func newReviewCmd() *cobra.Command {
-	var prNumber int
-	var jsonStr string
-
-	cmd := &cobra.Command{
-		Use:   "review",
-		Short: "Create or submit a pull request review",
-		Long: `Create or submit a pull request review.
-
-Accepts JSON via --json flag or stdin.
-
-Schema:
-  {
-    "event":    "APPROVE | REQUEST_CHANGES | COMMENT",  // omit to leave as pending
-    "body":     "overall review comment",
-    "comments": [
-      { "path": "src/foo.ts", "line": 42, "body": "...", "side": "RIGHT" },
-      { "path": "src/bar.ts", "line": 10, "start_line": 8, "body": "...", "side": "RIGHT" },
-      { "in_reply_to": 123456789, "body": "reply text" }
-    ]
-  }`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if prNumber <= 0 {
-				return fmt.Errorf("pr must be > 0")
-			}
-			owner, repo, err := resolveRepo(repoFlag)
-			if err != nil {
-				return err
-			}
-
-			var inputJSON string
-			if jsonStr != "" {
-				inputJSON = jsonStr
-			} else {
-				data, err := io.ReadAll(os.Stdin)
-				if err != nil {
-					return fmt.Errorf("failed to read stdin: %w", err)
-				}
-				inputJSON = string(data)
-			}
-			if inputJSON == "" {
-				return fmt.Errorf("no input: provide --json or pipe JSON to stdin")
-			}
-
-			var input reviewInput
-			if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
-				return fmt.Errorf("invalid JSON: %w", err)
-			}
-			if len(input.Comments) == 0 && input.Event == "" {
-				return fmt.Errorf("no-op: provide at least one comment or an event")
-			}
-			if input.Event != "" {
-				switch strings.ToUpper(input.Event) {
-				case "APPROVE", "REQUEST_CHANGES", "COMMENT":
-					input.Event = strings.ToUpper(input.Event)
-				default:
-					return fmt.Errorf("invalid event %q: must be one of APPROVE, REQUEST_CHANGES, COMMENT", input.Event)
-				}
-			}
-
-			out, err := executeReview(owner, repo, prNumber, input)
-			if err != nil {
-				return err
-			}
-
-			return writeJSON(os.Stdout, out)
-		},
-	}
-
-	cmd.Flags().IntVar(&prNumber, "pr", 0, "Pull request number")
-	cmd.Flags().StringVar(&jsonStr, "json", "", "Review JSON (event, body, comments[])")
-	_ = cmd.MarkFlagRequired("pr")
-
-	return cmd
 }

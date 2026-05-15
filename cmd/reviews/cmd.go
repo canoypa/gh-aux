@@ -1,4 +1,4 @@
-package prcomments
+package reviews
 
 import (
 	"github.com/spf13/cobra"
@@ -9,19 +9,13 @@ var repoFlag string
 
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pr-comments",
-		Short: "Manage pull request comments",
+		Use:   "reviews",
+		Short: "Manage pull request reviews",
 	}
 
 	cmd.PersistentFlags().StringVar(&repoFlag, "repo", "", "Repository in OWNER/REPO format (defaults to current directory remote)")
 
-	cmd.AddCommand(newGetCmd())
-	cmd.AddCommand(newUpdateCmd())
-	cmd.AddCommand(newAddCmd())
-	cmd.AddCommand(newReviewCmd())
-	cmd.AddCommand(newReplyReviewCmd())
-	cmd.AddCommand(newResolveThreadCmd())
-	cmd.AddCommand(newTimelineCmd())
+	cmd.AddCommand(newCreateCmd())
 
 	return cmd
 }
