@@ -1,6 +1,6 @@
 ---
 name: gh-aux
-description: gh-aux wraps `gh api` and `gh graphql` operations that require multi-step ID resolution or complex GraphQL into named subcommands. When you are about to write a `gh api` or `gh graphql` call, check gh-aux first.
+description: Use instead of raw `gh api` or `gh graphql` for GitHub workflows involving: PR review comments (add, reply, resolve), PR reviews (create/submit), Projects V2 (add/remove items, update fields), sub-issues, fetching file contents by ref, or finding a PR from a commit.
 ---
 
 # gh-aux
