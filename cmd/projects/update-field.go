@@ -13,7 +13,7 @@ func newUpdateFieldCmd() *cobra.Command {
 	var projectNumber int
 	var issueNumber int
 	var prNumber int
-	var field string
+	var fields []string
 
 	cmd := &cobra.Command{
 		Use:   "update-field",
@@ -33,13 +33,16 @@ func newUpdateFieldCmd() *cobra.Command {
 			if issueNumber != 0 && prNumber != 0 {
 				return fmt.Errorf("--issue and --pr are mutually exclusive")
 			}
-
-			eqIdx := strings.IndexByte(field, '=')
-			if eqIdx < 0 {
-				return fmt.Errorf("invalid --field value %q: expected FieldName=Value", field)
+			if len(fields) == 0 {
+				return fmt.Errorf("at least one --field is required")
 			}
-			fieldName := field[:eqIdx]
-			fieldValue := field[eqIdx+1:]
+
+			// Phase 1: validate all field formats before any API calls.
+			for _, f := range fields {
+				if strings.IndexByte(f, '=') < 0 {
+					return fmt.Errorf("invalid --field value %q: expected FieldName=Value", f)
+				}
+			}
 
 			restClient, err := api.DefaultRESTClient()
 			if err != nil {
@@ -65,8 +68,33 @@ func newUpdateFieldCmd() *cobra.Command {
 				return err
 			}
 
-			if err := setFieldValue(graphqlClient, projectNodeID, itemID, fieldName, fieldValue); err != nil {
+			// Phase 2: fetch field definitions once and validate all values.
+			fieldDefs, err := fetchProjectFields(graphqlClient, projectNodeID)
+			if err != nil {
 				return err
+			}
+			type resolvedField struct {
+				name       string
+				fieldID    string
+				valueUnion map[string]interface{}
+			}
+			resolved := make([]resolvedField, 0, len(fields))
+			for _, f := range fields {
+				eqIdx := strings.IndexByte(f, '=')
+				name := f[:eqIdx]
+				value := f[eqIdx+1:]
+				fieldID, valueUnion, err := resolveFieldValueInput(fieldDefs, name, value)
+				if err != nil {
+					return fmt.Errorf("invalid field %q: %w", name, err)
+				}
+				resolved = append(resolved, resolvedField{name, fieldID, valueUnion})
+			}
+
+			// Phase 3: apply all writes.
+			for _, r := range resolved {
+				if err := applyFieldValue(graphqlClient, projectNodeID, itemID, r.fieldID, r.valueUnion); err != nil {
+					return fmt.Errorf("failed to set field %q: %w", r.name, err)
+				}
 			}
 
 			out, err := fetchProjectItem(graphqlClient, projectNodeID, itemID)
@@ -80,9 +108,8 @@ func newUpdateFieldCmd() *cobra.Command {
 	cmd.Flags().IntVar(&projectNumber, "project", 0, "Project number")
 	cmd.Flags().IntVar(&issueNumber, "issue", 0, "Issue number (mutually exclusive with --pr)")
 	cmd.Flags().IntVar(&prNumber, "pr", 0, "Pull request number (mutually exclusive with --issue)")
-	cmd.Flags().StringVar(&field, "field", "", "Field value in FieldName=Value format")
+	cmd.Flags().StringArrayVar(&fields, "field", nil, "Field value in FieldName=Value format (repeatable)")
 	_ = cmd.MarkFlagRequired("project")
-	_ = cmd.MarkFlagRequired("field")
 
 	return cmd
 }

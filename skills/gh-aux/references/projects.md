@@ -19,8 +19,8 @@ Add issues and pull requests to a GitHub Project V2, and set field values.
 | `--project <number>` | Project number as shown in the project's URL. The owner is resolved from `--repo` (or the current git remote); organization projects are searched first, then personal projects. | — |
 | `--issue <number>` | Issue number | — |
 | `--pr <number>` | Pull request number | — |
-| `--field "Name=Value"` | Field assignment for `add` and `update-field`. `Value` is the option **name** (text) for `SINGLE_SELECT` fields, or the iteration **node ID** (e.g. `PVTI_...`) for `ITERATION` fields. Other types accept the raw value string. Repeatable (`add` only). | — |
-| `--field-name "Name"` | Field name for `clear-field`. Do not include `=Value` — only the field name. | — |
+| `--field "Name=Value"` | Field assignment for `add` and `update-field`. `Value` is the option **name** (text) for `SINGLE_SELECT` fields, or the iteration **node ID** (e.g. `PVTI_...`) for `ITERATION` fields. Other types accept the raw value string. **Repeatable** (pass multiple `--field` flags to set multiple fields in one call). | — |
+| `--field-name "Name"` | Field name for `clear-field`. Do not include `=Value` — only the field name. **Repeatable** (pass multiple `--field-name` flags to clear multiple fields in one call). | — |
 
 ## Output
 
@@ -63,6 +63,12 @@ gh aux projects remove --project 3 --issue 10
 # Set a field value
 gh aux projects update-field --project 3 --issue 10 --field "Status=Done"
 
+# Set multiple fields at once
+gh aux projects update-field --project 3 --issue 10 --field "Status=Done" --field "Sprint=My Sprint"
+
 # Clear a field value
 gh aux projects clear-field --project 3 --issue 10 --field-name "Status"
+
+# Clear multiple fields at once
+gh aux projects clear-field --project 3 --issue 10 --field-name "Status" --field-name "Sprint"
 ```

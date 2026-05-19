@@ -62,13 +62,16 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 
-			// Set fields if specified. On failure, remove the item to avoid leaving it in a partial state.
-			for _, f := range fields {
-				eqIdx := strings.IndexByte(f, '=')
-				if eqIdx < 0 {
-					_ = removeItemFromProject(graphqlClient, projectNodeID, itemNodeID)
-					return fmt.Errorf("invalid --field value %q: expected FieldName=Value", f)
-				}
+// Pre-validate all field formats before making any API calls.
+		for _, f := range fields {
+			if strings.IndexByte(f, '=') < 0 {
+				return fmt.Errorf("invalid --field value %q: expected FieldName=Value", f)
+			}
+		}
+
+		// Set fields if specified. On failure, remove the item to avoid leaving it in a partial state.
+		for _, f := range fields {
+			eqIdx := strings.IndexByte(f, '=')
 				fieldName := f[:eqIdx]
 				fieldValue := f[eqIdx+1:]
 				if err := setFieldValue(graphqlClient, projectNodeID, itemNodeID, fieldName, fieldValue); err != nil {
@@ -223,11 +226,20 @@ mutation($projectId: ID!, $itemId: ID!) {
 	}, &result)
 }
 
-// setFieldValue sets a named field on a project item.
-// It resolves field ID and type via a GraphQL query, then calls updateProjectV2ItemFieldValue.
-func setFieldValue(graphqlClient *api.GraphQLClient, projectID, itemID, fieldName, value string) error {
-	// Fetch project fields.
-	var fieldsResult struct {
+// projectField holds the definition of a single field in a ProjectV2.
+type projectField struct {
+	ID       string
+	Name     string
+	DataType string
+	Options  []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+}
+
+// fetchProjectFields returns all fields defined in a ProjectV2 (up to 100).
+func fetchProjectFields(graphqlClient *api.GraphQLClient, projectID string) ([]projectField, error) {
+	var result struct {
 		Node struct {
 			Fields struct {
 				Nodes []struct {
@@ -242,96 +254,90 @@ func setFieldValue(graphqlClient *api.GraphQLClient, projectID, itemID, fieldNam
 			} `json:"fields"`
 		} `json:"node"`
 	}
-	fieldsQuery := `
+	query := `
 query($projectId: ID!) {
   node(id: $projectId) {
     ... on ProjectV2 {
       fields(first: 100) {
         nodes {
           ... on ProjectV2Field {
-            id
-            name
-            dataType
+            id name dataType
           }
           ... on ProjectV2SingleSelectField {
-            id
-            name
-            dataType
-            options {
-              id
-              name
-            }
+            id name dataType
+            options { id name }
           }
           ... on ProjectV2IterationField {
-            id
-            name
-            dataType
+            id name dataType
           }
         }
       }
     }
   }
 }`
-	if err := graphqlClient.Do(fieldsQuery, map[string]interface{}{
-		"projectId": projectID,
-	}, &fieldsResult); err != nil {
-		return fmt.Errorf("failed to fetch project fields: %w", err)
+	if err := graphqlClient.Do(query, map[string]interface{}{"projectId": projectID}, &result); err != nil {
+		return nil, fmt.Errorf("failed to fetch project fields: %w", err)
 	}
+	fields := make([]projectField, 0, len(result.Node.Fields.Nodes))
+	for _, n := range result.Node.Fields.Nodes {
+		fields = append(fields, projectField{
+			ID:       n.ID,
+			Name:     n.Name,
+			DataType: n.DataType,
+			Options:  n.Options,
+		})
+	}
+	return fields, nil
+}
 
-	// Find the matching field by name (case-insensitive).
-	var fieldID string
-	var dataType string
-	var options []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	for _, f := range fieldsResult.Node.Fields.Nodes {
-		if strings.EqualFold(f.Name, fieldName) {
-			fieldID = f.ID
-			dataType = f.DataType
-			options = f.Options
+// resolveFieldValueInput finds the matching field and builds the value union without making any API calls.
+func resolveFieldValueInput(fields []projectField, fieldName, value string) (fieldID string, valueUnion map[string]interface{}, err error) {
+	var matched *projectField
+	for i := range fields {
+		if strings.EqualFold(fields[i].Name, fieldName) {
+			matched = &fields[i]
 			break
 		}
 	}
-	if fieldID == "" {
-		return fmt.Errorf("field %q not found in project", fieldName)
+	if matched == nil {
+		return "", nil, fmt.Errorf("field %q not found in project", fieldName)
 	}
-
-	// Build the value union based on dataType.
-	var fieldValueInput map[string]interface{}
-	switch strings.ToUpper(dataType) {
+	switch strings.ToUpper(matched.DataType) {
 	case "SINGLE_SELECT":
 		optionID := ""
-		for _, o := range options {
+		for _, o := range matched.Options {
 			if strings.EqualFold(o.Name, value) {
 				optionID = o.ID
 				break
 			}
 		}
 		if optionID == "" {
-			names := make([]string, 0, len(options))
-			for _, o := range options {
+			names := make([]string, 0, len(matched.Options))
+			for _, o := range matched.Options {
 				names = append(names, o.Name)
 			}
-			return fmt.Errorf("option %q not found in field %q; available options: %s", value, fieldName, strings.Join(names, ", "))
+			return "", nil, fmt.Errorf("option %q not found in field %q; available options: %s", value, fieldName, strings.Join(names, ", "))
 		}
-		fieldValueInput = map[string]interface{}{"singleSelectOptionId": optionID}
+		return matched.ID, map[string]interface{}{"singleSelectOptionId": optionID}, nil
 	case "TEXT":
-		fieldValueInput = map[string]interface{}{"text": value}
+		return matched.ID, map[string]interface{}{"text": value}, nil
 	case "NUMBER":
 		n, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			return fmt.Errorf("invalid number value %q for field %q: %w", value, fieldName, err)
+			return "", nil, fmt.Errorf("invalid number value %q for field %q: %w", value, fieldName, err)
 		}
-		fieldValueInput = map[string]interface{}{"number": n}
+		return matched.ID, map[string]interface{}{"number": n}, nil
 	case "DATE":
-		fieldValueInput = map[string]interface{}{"date": value}
+		return matched.ID, map[string]interface{}{"date": value}, nil
 	case "ITERATION":
-		fieldValueInput = map[string]interface{}{"iterationId": value}
+		return matched.ID, map[string]interface{}{"iterationId": value}, nil
 	default:
-		return fmt.Errorf("unsupported field type %q for field %q", dataType, fieldName)
+		return "", nil, fmt.Errorf("unsupported field type %q for field %q", matched.DataType, fieldName)
 	}
+}
 
+// applyFieldValue writes a resolved field value to a project item.
+func applyFieldValue(graphqlClient *api.GraphQLClient, projectID, itemID, fieldID string, valueUnion map[string]interface{}) error {
 	var updateResult struct {
 		UpdateProjectV2ItemFieldValue struct {
 			ProjectV2Item struct {
@@ -339,7 +345,7 @@ query($projectId: ID!) {
 			} `json:"projectV2Item"`
 		} `json:"updateProjectV2ItemFieldValue"`
 	}
-	updateMutation := `
+	mutation := `
 mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
   updateProjectV2ItemFieldValue(input: {
     projectId: $projectId
@@ -352,13 +358,26 @@ mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldVal
     }
   }
 }`
-	if err := graphqlClient.Do(updateMutation, map[string]interface{}{
+	if err := graphqlClient.Do(mutation, map[string]interface{}{
 		"projectId": projectID,
 		"itemId":    itemID,
 		"fieldId":   fieldID,
-		"value":     fieldValueInput,
+		"value":     valueUnion,
 	}, &updateResult); err != nil {
 		return fmt.Errorf("failed to update field value: %w", err)
 	}
 	return nil
+}
+
+// setFieldValue sets a named field on a project item.
+func setFieldValue(graphqlClient *api.GraphQLClient, projectID, itemID, fieldName, value string) error {
+	fields, err := fetchProjectFields(graphqlClient, projectID)
+	if err != nil {
+		return err
+	}
+	fieldID, valueUnion, err := resolveFieldValueInput(fields, fieldName, value)
+	if err != nil {
+		return err
+	}
+	return applyFieldValue(graphqlClient, projectID, itemID, fieldID, valueUnion)
 }

@@ -13,7 +13,7 @@ func newClearFieldCmd() *cobra.Command {
 	var projectNumber int
 	var issueNumber int
 	var prNumber int
-	var fieldName string
+	var fieldNames []string
 
 	cmd := &cobra.Command{
 		Use:   "clear-field",
@@ -32,6 +32,9 @@ func newClearFieldCmd() *cobra.Command {
 			}
 			if issueNumber != 0 && prNumber != 0 {
 				return fmt.Errorf("--issue and --pr are mutually exclusive")
+			}
+			if len(fieldNames) == 0 {
+				return fmt.Errorf("at least one --field-name is required")
 			}
 
 			restClient, err := api.DefaultRESTClient()
@@ -58,13 +61,35 @@ func newClearFieldCmd() *cobra.Command {
 				return err
 			}
 
-			fieldID, err := resolveFieldID(graphqlClient, projectNodeID, fieldName)
+			// Phase 1: fetch field definitions once and resolve all field IDs.
+			fieldDefs, err := fetchProjectFields(graphqlClient, projectNodeID)
 			if err != nil {
 				return err
 			}
+			type resolvedClear struct {
+				name    string
+				fieldID string
+			}
+			resolved := make([]resolvedClear, 0, len(fieldNames))
+			for _, name := range fieldNames {
+				var found string
+				for _, f := range fieldDefs {
+					if strings.EqualFold(f.Name, name) {
+						found = f.ID
+						break
+					}
+				}
+				if found == "" {
+					return fmt.Errorf("field %q not found in project", name)
+				}
+				resolved = append(resolved, resolvedClear{name, found})
+			}
 
-			if err := clearFieldValue(graphqlClient, projectNodeID, itemID, fieldID); err != nil {
-				return err
+			// Phase 2: clear all fields.
+			for _, r := range resolved {
+				if err := clearFieldValue(graphqlClient, projectNodeID, itemID, r.fieldID); err != nil {
+					return fmt.Errorf("failed to clear field %q: %w", r.name, err)
+				}
 			}
 
 			out, err := fetchProjectItem(graphqlClient, projectNodeID, itemID)
@@ -78,48 +103,11 @@ func newClearFieldCmd() *cobra.Command {
 	cmd.Flags().IntVar(&projectNumber, "project", 0, "Project number")
 	cmd.Flags().IntVar(&issueNumber, "issue", 0, "Issue number (mutually exclusive with --pr)")
 	cmd.Flags().IntVar(&prNumber, "pr", 0, "Pull request number (mutually exclusive with --issue)")
-	cmd.Flags().StringVar(&fieldName, "field-name", "", "Field name to clear")
+	cmd.Flags().StringArrayVar(&fieldNames, "field-name", nil, "Field name to clear (repeatable)")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("field-name")
 
 	return cmd
-}
-
-// resolveFieldID returns the node ID of a named field in a project (case-insensitive).
-func resolveFieldID(graphqlClient *api.GraphQLClient, projectNodeID, fieldName string) (string, error) {
-	var result struct {
-		Node struct {
-			Fields struct {
-				Nodes []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				} `json:"nodes"`
-			} `json:"fields"`
-		} `json:"node"`
-	}
-	query := `
-query($projectId: ID!) {
-  node(id: $projectId) {
-    ... on ProjectV2 {
-      fields(first: 100) {
-        nodes {
-          ... on ProjectV2Field             { id name }
-          ... on ProjectV2SingleSelectField { id name }
-          ... on ProjectV2IterationField    { id name }
-        }
-      }
-    }
-  }
-}`
-	if err := graphqlClient.Do(query, map[string]interface{}{"projectId": projectNodeID}, &result); err != nil {
-		return "", fmt.Errorf("failed to fetch project fields: %w", err)
-	}
-	for _, f := range result.Node.Fields.Nodes {
-		if strings.EqualFold(f.Name, fieldName) {
-			return f.ID, nil
-		}
-	}
-	return "", fmt.Errorf("field %q not found in project", fieldName)
 }
 
 // clearFieldValue calls clearProjectV2ItemFieldValue to remove a field value.
