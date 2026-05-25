@@ -1,6 +1,6 @@
 ---
 name: gh-aux
-description: Use instead of raw `gh api` or `gh graphql` for GitHub workflows involving: PR review comments (add, reply, resolve), PR reviews (create/submit), Projects V2 (add/remove items, update fields), sub-issues, fetching file contents by ref, or finding a PR from a commit.
+description: "Use instead of raw `gh api` or `gh graphql` for GitHub workflows involving: PR review comments (add, reply, resolve), PR reviews (create/submit), Projects V2 (add/remove items, update fields), sub-issues, fetching file contents by ref, or finding a PR from a commit."
 ---
 
 # gh-aux
