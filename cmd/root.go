@@ -4,11 +4,9 @@ import (
 	"strings"
 
 	"github.com/canoypa/gh-aux/cmd/commits"
-	"github.com/canoypa/gh-aux/cmd/files"
 	"github.com/canoypa/gh-aux/cmd/projects"
 	"github.com/canoypa/gh-aux/cmd/reviewcomments"
 	"github.com/canoypa/gh-aux/cmd/reviews"
-	"github.com/canoypa/gh-aux/cmd/subissues"
 	"github.com/spf13/cobra"
 )
 
@@ -23,11 +21,9 @@ func Execute() error {
 
 func init() {
 	rootCmd.AddCommand(commits.NewCmd())
-	rootCmd.AddCommand(files.NewCmd())
 	rootCmd.AddCommand(projects.NewCmd())
 	rootCmd.AddCommand(reviewcomments.NewCmd())
 	rootCmd.AddCommand(reviews.NewCmd())
-	rootCmd.AddCommand(subissues.NewCmd())
 
 	// Patch usage template so all commands display as "gh aux ..." instead of "aux ...".
 	t := rootCmd.UsageTemplate()
