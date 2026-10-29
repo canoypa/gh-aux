@@ -82,3 +82,30 @@ func TestWriteJSON(t *testing.T) {
 		t.Errorf("writeJSON output %q does not contain expected content", buf.String())
 	}
 }
+
+func TestParsePullRequestNumber(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    int
+		wantErr bool
+	}{
+		{"valid", "https://api.github.com/repos/owner/repo/pulls/84", 84, false},
+		{"empty", "", 0, true},
+		{"no pulls segment", "https://api.github.com/repos/owner/repo/issues/84", 0, true},
+		{"non-numeric", "https://api.github.com/repos/owner/repo/pulls/abc", 0, true},
+		{"zero", "https://api.github.com/repos/owner/repo/pulls/0", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parsePullRequestNumber(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parsePullRequestNumber(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("parsePullRequestNumber(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}

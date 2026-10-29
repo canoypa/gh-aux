@@ -46,36 +46,19 @@ func newResolveThreadCmd() *cobra.Command {
 					return fmt.Errorf("failed to create REST client: %w", err)
 				}
 				var commentResp struct {
-					NodeID string `json:"node_id"`
+					PullRequestURL string `json:"pull_request_url"`
 				}
 				path := fmt.Sprintf("repos/%s/%s/pulls/comments/%d", owner, repo, commentID)
 				if err := restClient.Get(path, &commentResp); err != nil {
 					return fmt.Errorf("failed to fetch comment: %w", err)
 				}
-
-				const queryThread = `
-query($nodeId: ID!) {
-  node(id: $nodeId) {
-    ... on PullRequestReviewComment {
-      thread { id }
-    }
-  }
-}`
-				var threadResp struct {
-					Node struct {
-						Thread struct {
-							ID string `json:"id"`
-						} `json:"thread"`
-					} `json:"node"`
+				prNumber, err := parsePullRequestNumber(commentResp.PullRequestURL)
+				if err != nil {
+					return err
 				}
-				if err := client.Do(queryThread, map[string]interface{}{
-					"nodeId": commentResp.NodeID,
-				}, &threadResp); err != nil {
-					return fmt.Errorf("failed to resolve thread from comment: %w", err)
-				}
-				resolvedThreadID = threadResp.Node.Thread.ID
-				if resolvedThreadID == "" {
-					return fmt.Errorf("could not resolve thread for comment ID %d", commentID)
+				resolvedThreadID, err = findThreadNodeID(client, owner, repo, prNumber, commentID)
+				if err != nil {
+					return err
 				}
 			}
 
