@@ -90,9 +90,9 @@ func TestParsePullRequestNumber(t *testing.T) {
 		want    int
 		wantErr bool
 	}{
-		{"valid", "https://api.github.com/repos/owner/repo/pulls/84", 84, false},
+		{"valid", "https://api.github.com/repos/owner/repo/pulls/1", 1, false},
 		{"empty", "", 0, true},
-		{"no pulls segment", "https://api.github.com/repos/owner/repo/issues/84", 0, true},
+		{"no pulls segment", "https://api.github.com/repos/owner/repo/issues/1", 0, true},
 		{"non-numeric", "https://api.github.com/repos/owner/repo/pulls/abc", 0, true},
 		{"zero", "https://api.github.com/repos/owner/repo/pulls/0", 0, true},
 	}

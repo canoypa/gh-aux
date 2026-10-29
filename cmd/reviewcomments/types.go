@@ -87,7 +87,7 @@ func writeJSON(w io.Writer, v any) error {
 
 // parsePullRequestNumber extracts the pull request number from the
 // pull_request_url of a REST review comment
-// (e.g. "https://api.github.com/repos/OWNER/REPO/pulls/84").
+// (e.g. "https://api.github.com/repos/OWNER/REPO/pulls/1").
 func parsePullRequestNumber(pullRequestURL string) (int, error) {
 	i := strings.LastIndex(pullRequestURL, "/pulls/")
 	if i < 0 {
